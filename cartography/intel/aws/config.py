@@ -8,8 +8,10 @@ import neo4j
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -180,12 +182,29 @@ def sync(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
     update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
+    by_region = {}
+
     for region in regions:
+        by_region[region] = {}
+
         logger.info("Syncing AWS Config for region '%s' in account '%s'.", region, current_aws_account_id)
         recorders = get_configuration_recorders(boto3_session, region)
+
+        by_region[region]['Recorders Scanned'] = len(recorders)
+
         load_configuration_recorders(neo4j_session, recorders, region, current_aws_account_id, update_tag)
         channels = get_delivery_channels(boto3_session, region)
+
+        by_region[region]['Channels Scanned'] = len(channels)
+
         load_delivery_channels(neo4j_session, channels, region, current_aws_account_id, update_tag)
         rules = get_config_rules(boto3_session, region)
+
+        by_region[region]['Rules Scanned'] = len(rules)
+
         load_config_rules(neo4j_session, rules, region, current_aws_account_id, update_tag)
+
+    statistician.add_stat('config', 'Resources Scanned by Region', by_region)
+
     cleanup_config(neo4j_session, common_job_parameters)

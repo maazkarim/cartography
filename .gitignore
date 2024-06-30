@@ -16,3 +16,5 @@ build/
 .compose
 generated
 dist/
+cartography/intel/aws/recordedStats/*
+cartography/statistics_file.json

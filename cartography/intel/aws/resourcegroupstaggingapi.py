@@ -11,8 +11,10 @@ from cartography.util import aws_handle_regions
 from cartography.util import batch
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 def get_short_id_from_ec2_arn(arn: str) -> str:
@@ -228,10 +230,23 @@ def sync(
     common_job_parameters: Dict,
     tag_resource_type_mappings: Dict = TAG_RESOURCE_TYPE_MAPPINGS,
 ) -> None:
+
+    by_region = {}
+    by_resource = {}
+    for res_type in tag_resource_type_mappings.keys():
+        by_resource[res_type] = 0
+
     for region in regions:
+
+        by_region[region] = 0
+
         logger.info(f"Syncing AWS tags for account {current_aws_account_id} and region {region}")
         for resource_type in tag_resource_type_mappings.keys():
             tag_data = get_tags(boto3_session, resource_type, region)
+
+            by_region[region] += len(tag_data)
+            by_resource[resource_type] += len(tag_data)
+
             transform_tags(tag_data, resource_type)  # type: ignore
             logger.info(f"Loading {len(tag_data)} tags for resource type {resource_type}")
             load_tags(
@@ -242,4 +257,8 @@ def sync(
                 current_aws_account_id=current_aws_account_id,
                 aws_update_tag=update_tag,
             )
+
+    statistician.add_stat('resourcegroupstaggingapi', 'Tags Scanned by Region', by_region)
+    statistician.add_stat('resourcegroupstaggingapi', 'Tags Scanned by Resource Type', by_resource)
+
     cleanup(neo4j_session, common_job_parameters)

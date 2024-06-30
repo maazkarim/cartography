@@ -11,9 +11,11 @@ import neo4j
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
 
+statistician = MyStats()
 
 @timeit
 @aws_handle_regions
@@ -241,13 +243,19 @@ def sync_lambda_functions(
         neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str],
         current_aws_account_id: str, aws_update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
+    by_region = {}
     for region in regions:
         logger.info("Syncing Lambda for region in '%s' in account '%s'.", region, current_aws_account_id)
         data = get_lambda_data(boto3_session, region)
+
+        by_region[region] = len(data)
+
         load_lambda_functions(neo4j_session, data, region, current_aws_account_id, aws_update_tag)
         lambda_function_details = get_lambda_function_details(boto3_session, data, region)
         load_lambda_function_details(neo4j_session, lambda_function_details, aws_update_tag)
 
+    statistician.add_stat('lambda_function', 'Lambda Functions Scanned By Region', by_region)
     cleanup_lambda(neo4j_session, common_job_parameters)
 
 

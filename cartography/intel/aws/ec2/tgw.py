@@ -10,8 +10,10 @@ from .util import get_botocore_config
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -22,6 +24,11 @@ def get_transit_gateways(boto3_session: boto3.session.Session, region: str) -> L
     try:
         data = client.describe_transit_gateways()["TransitGateways"]
     except botocore.exceptions.ClientError as e:
+
+        statistician.add_stat("ec2:tgw", "errors", e.response['Error']['Code'])
+        statistician.add_stat("ec2:tgw", "skipped regions", region)
+        statistician.add_stat("ec2:tgw", "status", "partial")
+
         # https://boto3.amazonaws.com/v1/documentation/api/latest/guide/error-handling.html#parsing-error-responses-and-catching-exceptions-from-aws-services
         logger.warning(
             "Could not retrieve Transit Gateways due to boto3 error %s: %s. Skipping.",
@@ -41,6 +48,11 @@ def get_tgw_attachments(boto3_session: boto3.session.Session, region: str) -> Li
         for page in paginator.paginate():
             tgw_attachments.extend(page['TransitGatewayAttachments'])
     except botocore.exceptions.ClientError as e:
+
+        statistician.add_stat("ec2:tgw", "errors", e.response['Error']['Code'])
+        statistician.add_stat("ec2:tgw", "skipped regions", region)
+        statistician.add_stat("ec2:tgw", "status", "partial")
+
         logger.warning(
             "Could not retrieve Transit Gateway Attachments due to boto3 error %s: %s. Skipping.",
             e.response['Error']['Code'],
@@ -59,6 +71,11 @@ def get_tgw_vpc_attachments(boto3_session: boto3.session.Session, region: str) -
         for page in paginator.paginate():
             tgw_vpc_attachments.extend(page['TransitGatewayVpcAttachments'])
     except botocore.exceptions.ClientError as e:
+
+        statistician.add_stat("ec2:tgw", "errors", e.response['Error']['Code'])
+        statistician.add_stat("ec2:tgw", "skipped regions", region)
+        statistician.add_stat("ec2:tgw", "status", "partial")
+
         logger.warning(
             "Could not retrieve Transit Gateway VPC Attachments due to boto3 error %s: %s. Skipping.",
             e.response['Error']['Code'],
@@ -241,19 +258,31 @@ def sync_transit_gateways(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
     update_tag: int, common_job_parameters: Dict,
 ) -> None:
+    count = 0
+    attachment_count = 0
+    vpc_count = 0
     for region in regions:
         logger.info("Syncing AWS Transit Gateways for region '%s' in account '%s'.", region, current_aws_account_id)
         tgws = get_transit_gateways(boto3_session, region)
+        count += len(tgws)
         load_transit_gateways(neo4j_session, tgws, region, current_aws_account_id, update_tag)
-
         logger.debug(
             "Syncing AWS Transit Gateway Attachments for region '%s' in account '%s'.",
             region, current_aws_account_id,
         )
         tgw_attachments = get_tgw_attachments(boto3_session, region)
+        attachment_count += len(tgw_attachments)
+
         tgw_vpc_attachments = get_tgw_vpc_attachments(boto3_session, region)
+        vpc_count += len(tgw_vpc_attachments)
+
         load_tgw_attachments(
             neo4j_session, tgw_attachments + tgw_vpc_attachments,
             region, current_aws_account_id, update_tag,
         )
+
+    statistician.add_stat('ec2:tgw','Total Transit Gateways Scanned', count)
+    statistician.add_stat('ec2:tgw','Total Transit Gateway Attachments Scanned',attachment_count)
+    statistician.add_stat('ec2:tgw','Total Transit Gateway Virtual Private Cloud Attachments Scanned',vpc_count)
+
     cleanup_transit_gateways(neo4j_session, common_job_parameters)

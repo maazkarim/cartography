@@ -13,9 +13,12 @@ from cartography.util import dict_value_to_str
 from cartography.util import merge_module_sync_metadata
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
 stat_handler = get_stats_client(__name__)
+statistician = MyStats()
+by_region = {}
 
 
 @timeit
@@ -530,6 +533,10 @@ def sync_rds_clusters(
     for region in regions:
         logger.info("Syncing RDS for region '%s' in account '%s'.", region, current_aws_account_id)
         data = get_rds_cluster_data(boto3_session, region)
+
+        by_region[region] = {}
+        by_region[region]['Clusters Scanned'] = len(data)
+
         load_rds_clusters(neo4j_session, data, region, current_aws_account_id, update_tag)  # type: ignore
     cleanup_rds_clusters(neo4j_session, common_job_parameters)
 
@@ -545,6 +552,9 @@ def sync_rds_instances(
     for region in regions:
         logger.info("Syncing RDS for region '%s' in account '%s'.", region, current_aws_account_id)
         data = get_rds_instance_data(boto3_session, region)
+
+        by_region[region]['Instances Scanned'] = len(data)
+
         load_rds_instances(neo4j_session, data, region, current_aws_account_id, update_tag)  # type: ignore
     cleanup_rds_instances_and_db_subnet_groups(neo4j_session, common_job_parameters)
 
@@ -559,7 +569,11 @@ def sync_rds_snapshots(
     """
     for region in regions:
         logger.info("Syncing RDS for region '%s' in account '%s'.", region, current_aws_account_id)
+        # print(0)
         data = get_rds_snapshot_data(boto3_session, region)
+
+        by_region[region]['Snapshots Scanned'] = len(data)
+
         load_rds_snapshots(neo4j_session, data, region, current_aws_account_id, update_tag)  # type: ignore
     cleanup_rds_snapshots(neo4j_session, common_job_parameters)
 
@@ -569,6 +583,7 @@ def sync(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
     update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
     sync_rds_clusters(
         neo4j_session, boto3_session, regions, current_aws_account_id, update_tag,
         common_job_parameters,
@@ -581,6 +596,9 @@ def sync(
         neo4j_session, boto3_session, regions, current_aws_account_id, update_tag,
         common_job_parameters,
     )
+
+    statistician.add_stat('rds', 'Resources Scanned by Region', by_region)
+
     merge_module_sync_metadata(
         neo4j_session,
         group_type='AWSAccount',

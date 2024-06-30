@@ -11,8 +11,10 @@ from cartography.util import camel_to_snake
 from cartography.util import dict_date_to_epoch
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -29,9 +31,9 @@ def get_ecs_cluster_arns(boto3_session: boto3.session.Session, region: str) -> L
 @timeit
 @aws_handle_regions
 def get_ecs_clusters(
-    boto3_session: boto3.session.Session,
-    region: str,
-    cluster_arns: List[str],
+        boto3_session: boto3.session.Session,
+        region: str,
+        cluster_arns: List[str],
 ) -> List[Dict[str, Any]]:
     client = boto3_session.client('ecs', region_name=region)
     # TODO: also include attachment info, and make relationships between the attachements
@@ -48,9 +50,9 @@ def get_ecs_clusters(
 @timeit
 @aws_handle_regions
 def get_ecs_container_instances(
-    cluster_arn: str,
-    boto3_session: boto3.session.Session,
-    region: str,
+        cluster_arn: str,
+        boto3_session: boto3.session.Session,
+        region: str,
 ) -> List[Dict[str, Any]]:
     client = boto3_session.client('ecs', region_name=region)
     paginator = client.get_paginator('list_container_instances')
@@ -92,9 +94,9 @@ def get_ecs_services(cluster_arn: str, boto3_session: boto3.session.Session, reg
 @timeit
 @aws_handle_regions
 def get_ecs_task_definitions(
-    boto3_session: boto3.session.Session,
-    region: str,
-    tasks: List[Dict[str, Any]],
+        boto3_session: boto3.session.Session,
+        region: str,
+        tasks: List[Dict[str, Any]],
 ) -> List[Dict[str, Any]]:
     client = boto3_session.client('ecs', region_name=region)
     task_definitions: List[Dict[str, Any]] = []
@@ -127,11 +129,11 @@ def get_ecs_tasks(cluster_arn: str, boto3_session: boto3.session.Session, region
 
 @timeit
 def load_ecs_clusters(
-    neo4j_session: neo4j.Session,
-    data: List[Dict[str, Any]],
-    region: str,
-    current_aws_account_id: str,
-    aws_update_tag: int,
+        neo4j_session: neo4j.Session,
+        data: List[Dict[str, Any]],
+        region: str,
+        current_aws_account_id: str,
+        aws_update_tag: int,
 ) -> None:
     ingest_clusters = """
     UNWIND $Clusters AS cluster
@@ -175,12 +177,12 @@ def load_ecs_clusters(
 
 @timeit
 def load_ecs_container_instances(
-    neo4j_session: neo4j.Session,
-    cluster_arn: str,
-    data: List[Dict[str, Any]],
-    region: str,
-    current_aws_account_id: str,
-    aws_update_tag: int,
+        neo4j_session: neo4j.Session,
+        cluster_arn: str,
+        data: List[Dict[str, Any]],
+        region: str,
+        current_aws_account_id: str,
+        aws_update_tag: int,
 ) -> None:
     ingest_instances = """
     UNWIND $Instances AS instance
@@ -222,12 +224,12 @@ def load_ecs_container_instances(
 
 @timeit
 def load_ecs_services(
-    neo4j_session: neo4j.Session,
-    cluster_arn: str,
-    data: List[Dict[str, Any]],
-    region: str,
-    current_aws_account_id: str,
-    aws_update_tag: int,
+        neo4j_session: neo4j.Session,
+        cluster_arn: str,
+        data: List[Dict[str, Any]],
+        region: str,
+        current_aws_account_id: str,
+        aws_update_tag: int,
 ) -> None:
     ingest_services = """
     UNWIND $Services AS service
@@ -284,11 +286,11 @@ def load_ecs_services(
 
 @timeit
 def load_ecs_task_definitions(
-    neo4j_session: neo4j.Session,
-    data: List[Dict[str, Any]],
-    region: str,
-    current_aws_account_id: str,
-    aws_update_tag: int,
+        neo4j_session: neo4j.Session,
+        data: List[Dict[str, Any]],
+        region: str,
+        current_aws_account_id: str,
+        aws_update_tag: int,
 ) -> None:
     ingest_task_definitions = """
     UNWIND $Definitions AS def
@@ -357,12 +359,12 @@ def load_ecs_task_definitions(
 
 @timeit
 def load_ecs_tasks(
-    neo4j_session: neo4j.Session,
-    cluster_arn: str,
-    data: List[Dict[str, Any]],
-    region: str,
-    current_aws_account_id: str,
-    aws_update_tag: int,
+        neo4j_session: neo4j.Session,
+        cluster_arn: str,
+        data: List[Dict[str, Any]],
+        region: str,
+        current_aws_account_id: str,
+        aws_update_tag: int,
 ) -> None:
     ingest_tasks = """
     UNWIND $Tasks AS task
@@ -449,11 +451,11 @@ def load_ecs_tasks(
 
 @timeit
 def load_ecs_container_definitions(
-    neo4j_session: neo4j.Session,
-    data: List[Dict[str, Any]],
-    region: str,
-    current_aws_account_id: str,
-    aws_update_tag: int,
+        neo4j_session: neo4j.Session,
+        data: List[Dict[str, Any]],
+        region: str,
+        current_aws_account_id: str,
+        aws_update_tag: int,
 ) -> None:
     ingest_definitions = """
     UNWIND $Definitions AS def
@@ -500,11 +502,11 @@ def load_ecs_container_definitions(
 
 @timeit
 def load_ecs_containers(
-    neo4j_session: neo4j.Session,
-    data: List[Dict[str, Any]],
-    region: str,
-    current_aws_account_id: str,
-    aws_update_tag: int,
+        neo4j_session: neo4j.Session,
+        data: List[Dict[str, Any]],
+        region: str,
+        current_aws_account_id: str,
+        aws_update_tag: int,
 ) -> None:
     ingest_containers = """
     UNWIND $Containers AS container
@@ -547,12 +549,26 @@ def cleanup_ecs(neo4j_session: neo4j.Session, common_job_parameters: Dict) -> No
 
 @timeit
 def sync(
-    neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
-    update_tag: int, common_job_parameters: Dict,
+        neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str],
+        current_aws_account_id: str,
+        update_tag: int, common_job_parameters: Dict,
 ) -> None:
+    by_region = {}
+
     for region in regions:
+
+        clstrs = 0
+        inst = 0
+        serv = 0
+        tsks = 0
+
         logger.info("Syncing ECS for region '%s' in account '%s'.", region, current_aws_account_id)
         cluster_arns = get_ecs_cluster_arns(boto3_session, region)
+
+        clstrs += len(cluster_arns)
+
+        by_region[region] = {'cluster_arns': clstrs, 'cluster_instances': inst, 'services': serv, 'tasks': tsks}
+
         clusters = get_ecs_clusters(boto3_session, region, cluster_arns)
         if len(clusters) == 0:
             continue
@@ -563,6 +579,8 @@ def sync(
                 boto3_session,
                 region,
             )
+            inst += len(cluster_instances)
+
             load_ecs_container_instances(
                 neo4j_session,
                 cluster_arn,
@@ -576,6 +594,9 @@ def sync(
                 boto3_session,
                 region,
             )
+
+            serv += len(services)
+
             load_ecs_services(
                 neo4j_session,
                 cluster_arn,
@@ -589,6 +610,9 @@ def sync(
                 boto3_session,
                 region,
             )
+
+            tsks += len(tasks)
+
             load_ecs_tasks(
                 neo4j_session,
                 cluster_arn,
@@ -609,4 +633,8 @@ def sync(
                 current_aws_account_id,
                 update_tag,
             )
+        by_region[region] = {'cluster_arns': clstrs, 'cluster_instances': inst, 'services': serv, 'tasks': tsks}
+
+    statistician.add_stat('ecs', 'Resources By Region', by_region)
     cleanup_ecs(neo4j_session, common_job_parameters)
+

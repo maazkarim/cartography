@@ -9,8 +9,10 @@ from .util import get_botocore_config
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -72,9 +74,15 @@ def sync_internet_gateways(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
     update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
+    gateways = {}
     for region in regions:
         logger.info("Syncing Internet Gateways for region '%s' in account '%s'.", region, current_aws_account_id)
         internet_gateways = get_internet_gateways(boto3_session, region)
+
+        gateways[region] = len(internet_gateways)
+
         load_internet_gateways(neo4j_session, internet_gateways, region, current_aws_account_id, update_tag)
 
+    statistician.add_stat('ec2:internet_gateway', 'Internet Gateways Scanned By Region', gateways)
     cleanup(neo4j_session, common_job_parameters)

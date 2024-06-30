@@ -23,10 +23,12 @@ from cartography.util import run_cleanup_job
 from cartography.util import timeit
 from cartography.util import to_asynchronous
 from cartography.util import to_synchronous
+from cartography.my_stats import MyStats
+
 
 logger = logging.getLogger(__name__)
 stat_handler = get_stats_client(__name__)
-
+skipped = {'non-regional':[]}
 
 @timeit
 def get_s3_bucket_list(boto3_session: boto3.session.Session) -> List[Dict]:
@@ -190,32 +192,80 @@ def get_public_access_block(bucket: Dict, client: botocore.client.BaseClient) ->
 
 @timeit
 def _is_common_exception(e: Exception, bucket: Dict) -> bool:
+    statistician = MyStats()    # Added by Maaz
     error_msg = "Failed to retrieve S3 bucket detail"
+    region = 'non-regional'
+    if bucket['Region'] is not None:
+        region = bucket['Region']
+        if bucket['Region'] not in skipped:
+            # print(f"got to bucket region {bucket['Region']}")
+            skipped[bucket['Region']] = []
+        statistician.add_stat("s3", "skipped regions", bucket['Region'])
+    statistician.add_stat("s3", "status", "partial")
+
+    bucketName = bucket['Name']
+
     if "AccessDenied" in e.args[0]:
+        statistician.add_stat('s3',"errors","Access Denied")  # Added by Maaz
+
+        skipped[region].append(f'{bucketName}: Access Denied')
+
         logger.warning(f"{error_msg} for {bucket['Name']} - Access Denied")
         return True
     elif "NoSuchBucketPolicy" in e.args[0]:
+        statistician.add_stat('s3',"errors","No Such Bucket Policy")  # Added by Maaz
+
+        skipped[region].append(f'{bucketName}: NoSuchBucketPolicy')
+
         logger.warning(f"{error_msg} for {bucket['Name']} - NoSuchBucketPolicy")
         return True
     elif "NoSuchBucket" in e.args[0]:
+        statistician.add_stat('s3',"errors","No Such Bucket") # Added by Maaz
+
+        skipped[region].append(f'{bucketName}: No Such Bucket') # Added by Maaz
+
         logger.warning(f"{error_msg} for {bucket['Name']} - No Such Bucket")
         return True
     elif "AllAccessDisabled" in e.args[0]:
+        statistician.add_stat('s3',"errors","All Access Disabled")    # Added by Maaz
+
+        skipped[region].append(f'{bucketName}: Bucket is disabled') # Added by Maaz
+
         logger.warning(f"{error_msg} for {bucket['Name']} - Bucket is disabled")
         return True
     elif "EndpointConnectionError" in e.args[0]:
+        statistician.add_stat('s3',"errors","Endpoint Connection Error")  # Added by Maaz
+
+        skipped[region].append(f'{bucketName}: EndpointConnectionError') # Added by Maaz
+
         logger.warning(f"{error_msg} for {bucket['Name']} - EndpointConnectionError")
         return True
     elif "ServerSideEncryptionConfigurationNotFoundError" in e.args[0]:
+        statistician.add_stat('s3',"errors","ServerSide Encryption Configuration Not Found Error")    # Added by Maaz
+
+        skipped[region].append(f'{bucketName}: ServerSideEncryptionConfigurationNotFoundError') # Added by Maaz
+
         logger.warning(f"{error_msg} for {bucket['Name']} - ServerSideEncryptionConfigurationNotFoundError")
         return True
     elif "InvalidToken" in e.args[0]:
+        statistician.add_stat('s3',"errors","Invalid Token")  # Added by Maaz
+
+        skipped[region].append(f'{bucketName}: InvalidToken') # Added by Maaz
+
         logger.warning(f"{error_msg} for {bucket['Name']} - InvalidToken")
         return True
     elif "NoSuchPublicAccessBlockConfiguration" in e.args[0]:
+        statistician.add_stat('s3',"errors","No Such Public Access Block Configuration")  # Added by Maaz
+
+        skipped[region].append(f'{bucketName}: NoSuchPublicAccessBlockConfiguration') # Added by Maaz
+
         logger.warning(f"{error_msg} for {bucket['Name']} - NoSuchPublicAccessBlockConfiguration")
         return True
     elif "IllegalLocationConstraintException" in e.args[0]:
+        statistician.add_stat('s3',"errors","Illegal Location Constraint Exception")  # Added by Maaz
+
+        skipped[region].append(f'{bucketName}: IllegalLocationConstraintException') # Added by Maaz
+
         logger.warning(f"{error_msg} for {bucket['Name']} - IllegalLocationConstraintException")
         return True
     return False
@@ -709,7 +759,7 @@ def load_s3_buckets(neo4j_session: neo4j.Session, data: Dict, current_aws_accoun
     """
 
     # The owner data returned by the API maps to the aws account nickname and not the IAM user
-    # there doesn't seem to be a way to retreive the mapping but we can get the current context account
+    # there doesn't seem to be a way to retrieve the mapping, but we can get the current context account,
     # so we map to that directly
 
     for bucket in data["Buckets"]:
@@ -743,12 +793,18 @@ def sync(
     logger.info("Syncing S3 for account '%s'.", current_aws_account_id)
     bucket_data = get_s3_bucket_list(boto3_session)
 
+    total_resources = len(bucket_data["Buckets"])    # Added by Maaz
+    statistician = MyStats()      # Added by Maaz
+    statistician.add_stat("s3", "Total Resources Scanned", total_resources)     # Added by Maaz
+
     load_s3_buckets(neo4j_session, bucket_data, current_aws_account_id, update_tag)
     cleanup_s3_buckets(neo4j_session, common_job_parameters)
 
     acl_and_policy_data_iter = get_s3_bucket_details(boto3_session, bucket_data)
     load_s3_details(neo4j_session, acl_and_policy_data_iter, current_aws_account_id, update_tag)
     cleanup_s3_bucket_acl_and_policy(neo4j_session, common_job_parameters)
+
+    statistician.add_stat('s3', 'Details of Skips', skipped)
 
     merge_module_sync_metadata(
         neo4j_session,

@@ -11,8 +11,10 @@ from cartography.graph.job import GraphJob
 from cartography.models.aws.eks.clusters import EKSClusterSchema
 from cartography.util import aws_handle_regions
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -92,15 +94,28 @@ def sync(
         update_tag: int,
         common_job_parameters: Dict[str, Any],
 ) -> None:
+
+    by_region = {}
     for region in regions:
         logger.info("Syncing EKS for region '%s' in account '%s'.", region, current_aws_account_id)
 
+        clstrs = 0
+
         clusters: List[str] = get_eks_clusters(boto3_session, region)
+        clstrs += len(clusters)
         cluster_data = {}
+
+        clstrs_dta = 0
+
         for cluster_name in clusters:
             cluster_data[cluster_name] = get_eks_describe_cluster(boto3_session, region, cluster_name)
+
+            clstrs_dta += len(cluster_data[cluster_name])
+        by_region[region] = {'Clusters Scanned': clstrs, 'Total Clusters data': clstrs_dta}
+
         transformed_list = transform(cluster_data)
 
         load_eks_clusters(neo4j_session, transformed_list, region, current_aws_account_id, update_tag)
 
+    statistician.add_stat('eks', 'Resources Scanned By Region', by_region)
     cleanup(neo4j_session, common_job_parameters)

@@ -10,9 +10,11 @@ from .util import get_botocore_config
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
 
+statistician = MyStats()
 
 @timeit
 @aws_handle_regions
@@ -21,6 +23,11 @@ def get_reserved_instances(boto3_session: boto3.session.Session, region: str) ->
     try:
         reserved_instances = client.describe_reserved_instances()['ReservedInstances']
     except ClientError as e:
+
+        statistician.add_stat("ec2:reserved_instances", "errors", e)
+        statistician.add_stat("ec2:reserved_instances", "skipped regions", region)
+        statistician.add_stat("ec2:reserved_instances", "status", "partial")
+
         logger.warning(f"Failed retrieve reserved instances for region - {region}. Error - {e}")
         raise
     return reserved_instances
@@ -75,8 +82,17 @@ def sync_ec2_reserved_instances(
         current_aws_account_id: str,
         update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
+    count = 0
+
     for region in regions:
         logger.debug("Syncing reserved instances for region '%s' in account '%s'.", region, current_aws_account_id)
         data = get_reserved_instances(boto3_session, region)
+
+        count += len(data)
+
         load_reserved_instances(neo4j_session, data, region, current_aws_account_id, update_tag)
+
+    statistician.add_stat('ec2:reserved_instances', 'Total Reserved instances Scanned', count)
+
     cleanup_reserved_instances(neo4j_session, common_job_parameters)

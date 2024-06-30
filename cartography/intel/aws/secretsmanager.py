@@ -9,8 +9,10 @@ from cartography.util import aws_handle_regions
 from cartography.util import dict_date_to_epoch
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -77,8 +79,16 @@ def sync(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
     update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
+    by_region = {}
+
     for region in regions:
         logger.info("Syncing Secrets Manager for region '%s' in account '%s'.", region, current_aws_account_id)
         secrets = get_secret_list(boto3_session, region)
+
+        by_region[region] = len(secrets)
+
         load_secrets(neo4j_session, secrets, region, current_aws_account_id, update_tag)
+
+    statistician.add_stat('secretsmanager', 'Secrets Scanned by Region', by_region)
     cleanup_secrets(neo4j_session, common_job_parameters)

@@ -17,8 +17,10 @@ from cartography.models.aws.ec2.securitygroup_networkinterface import EC2Securit
 from cartography.models.aws.ec2.subnet_networkinterface import EC2SubnetNetworkInterfaceSchema
 from cartography.util import aws_handle_regions
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 Ec2NetworkData = namedtuple(
     "Ec2NetworkData", [
@@ -238,9 +240,13 @@ def sync_network_interfaces(
         update_tag: int,
         common_job_parameters: Dict,
 ) -> None:
+    count = 0
     for region in regions:
         logger.info(f"Syncing EC2 network interfaces for region '{region}' in account '{current_aws_account_id}'.")
         data = get_network_interface_data(boto3_session, region)
+
+        count += len(data)
+
         ec2_network_data = transform_network_interface_data(data, region)
         load_network_data(
             neo4j_session,
@@ -252,4 +258,6 @@ def sync_network_interfaces(
             ec2_network_data.subnet_list,
             ec2_network_data.sg_list,
         )
+    statistician.add_stat('ec2:network_interface', 'Total Network Interfaces Scanned', count)
+
     cleanup_network_interfaces(neo4j_session, common_job_parameters)

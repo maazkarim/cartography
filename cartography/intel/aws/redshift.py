@@ -8,9 +8,12 @@ import neo4j
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
 
+statistician = MyStats()
+by_region = {}
 
 @timeit
 @aws_handle_regions
@@ -157,6 +160,9 @@ def sync_redshift_clusters(
     current_aws_account_id: str, aws_update_tag: int,
 ) -> None:
     data = get_redshift_cluster_data(boto3_session, region)
+
+    by_region[region] = len(data)
+
     transform_redshift_cluster_data(data, region, current_aws_account_id)
     load_redshift_cluster_data(neo4j_session, data, region, current_aws_account_id, aws_update_tag)
 
@@ -169,4 +175,6 @@ def sync(
     for region in regions:
         logger.info("Syncing Redshift clusters for region '%s' in account '%s'.", region, current_aws_account_id)
         sync_redshift_clusters(neo4j_session, boto3_session, region, current_aws_account_id, update_tag)
+
+    statistician.add_stat('redshift', 'Redshift Clusters Scanned by Region', by_region)
     cleanup(neo4j_session, common_job_parameters)

@@ -14,8 +14,10 @@ from cartography.intel.aws.ec2.util import get_botocore_config
 from cartography.models.aws.emr import EMRClusterSchema
 from cartography.util import aws_handle_regions
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 # EMR API is subject to aggressive throttling, so we need to sleep a second between each call.
 LIST_SLEEP = 1
@@ -43,6 +45,11 @@ def get_emr_describe_cluster(boto3_session: boto3.session.Session, region: str, 
         response = client.describe_cluster(ClusterId=cluster_id)
         cluster_details = response['Cluster']
     except botocore.exceptions.ClientError as e:
+
+        statistician.add_stat('emr', 'skipped regions', region)
+        statistician.add_stat('emr', 'errors', e.response['Error']['Code'])
+        statistician.add_stat('emr', 'status', 'partial')
+
         code = e.response['Error']['Code']
         msg = e.response['Error']['Message']
         logger.warning(f"Could not run EMR describe_cluster due to boto3 error {code}: {msg}. Skipping.")
@@ -80,11 +87,16 @@ def sync(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
     update_tag: int, common_job_parameters: Dict[str, Any],
 ) -> None:
+
+    by_region = {}
+
     for region in regions:
         logger.info(f"Syncing EMR for region '{region}' in account '{current_aws_account_id}'.")
 
         clusters = get_emr_clusters(boto3_session, region)
 
+        by_region[region] = len(clusters)
+        
         cluster_data: List[Dict[str, Any]] = []
         for cluster in clusters:
             cluster_id = cluster['Id']
@@ -95,4 +107,5 @@ def sync(
 
         load_emr_clusters(neo4j_session, cluster_data, region, current_aws_account_id, update_tag)
 
+    statistician.add_stat('emr', 'Clusters Scanned By region', by_region)
     cleanup(neo4j_session, common_job_parameters)

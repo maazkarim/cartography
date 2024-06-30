@@ -9,8 +9,10 @@ from .util import get_botocore_config
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -233,11 +235,17 @@ def sync_ec2_auto_scaling_groups(
         neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str],
         current_aws_account_id: str, update_tag: int, common_job_parameters: Dict,
 ) -> None:
+    lc_count = 0
+    count = 0
     for region in regions:
         logger.debug("Syncing auto scaling groups for region '%s' in account '%s'.", region, current_aws_account_id)
         lc_data = get_launch_configurations(boto3_session, region)
+        lc_count += len(lc_data)
         load_launch_configurations(neo4j_session, lc_data, region, current_aws_account_id, update_tag)
         data = get_ec2_auto_scaling_groups(boto3_session, region)
+        count += len(data)
         load_ec2_auto_scaling_groups(neo4j_session, data, region, current_aws_account_id, update_tag)
+    statistician.add_stat('ec2:autoscalinggroup', 'Total Launch Config Resources Scanned', lc_count)
+    statistician.add_stat('ec2:autoscalinggroup', 'Total Auto Scaling Groups Scanned', count)
     cleanup_ec2_auto_scaling_groups(neo4j_session, common_job_parameters)
     cleanup_ec2_launch_configurations(neo4j_session, common_job_parameters)

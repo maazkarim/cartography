@@ -12,8 +12,10 @@ from cartography.intel.aws.util.arns import build_arn
 from cartography.models.aws.ec2.volumes import EBSVolumeSchema
 from cartography.util import aws_handle_regions
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -95,9 +97,17 @@ def sync_ebs_volumes(
         update_tag: int,
         common_job_parameters: Dict[str, Any],
 ) -> None:
+
+    count = 0
+
     for region in regions:
         logger.debug("Syncing volumes for region '%s' in account '%s'.", region, current_aws_account_id)
         data = get_volumes(boto3_session, region)
+
+        count += len(data)
+
         transformed_data = transform_volumes(data, region, current_aws_account_id)
         load_volumes(neo4j_session, transformed_data, region, current_aws_account_id, update_tag)
+
+    statistician.add_stat('ec2:volumes', 'Total Volumes Scanned', count)
     cleanup_volumes(neo4j_session, common_job_parameters)

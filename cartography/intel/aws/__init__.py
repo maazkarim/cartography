@@ -9,6 +9,7 @@ from typing import List
 import boto3
 import botocore.exceptions
 import neo4j
+import time
 
 from . import ec2
 from . import organizations
@@ -21,10 +22,12 @@ from cartography.util import run_analysis_and_ensure_deps
 from cartography.util import run_analysis_job
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 
 stat_handler = get_stats_client(__name__)
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 def _build_aws_sync_kwargs(
@@ -58,22 +61,49 @@ def _sync_one_account(
     )
 
     for func_name in aws_requested_syncs:
+
+        begin = time.time()  # Added by Maaz
+
         if func_name in RESOURCE_FUNCTIONS:
             # Skip permission relationships and tags for now because they rely on data already being in the graph
             if func_name not in ['permission_relationships', 'resourcegroupstaggingapi']:
-                RESOURCE_FUNCTIONS[func_name](**sync_args)
+                try:
+                    statistician.add_stat(func_name, "status", "successful")
+                    RESOURCE_FUNCTIONS[func_name](**sync_args)
+                except Exception as e:
+                    statistician.add_stat(func_name, "status", "failed")
+                    statistician.add_stat(func_name, "errors", e)
             else:
                 continue
         else:
             raise ValueError(f'AWS sync function "{func_name}" was specified but does not exist. Did you misspell it?')
 
+        end = time.time()   # Added by Maaz
+        statistician.add_stat(func_name, "Time Taken", f'{round(end-begin)} seconds')  # Added by Maaz
+
+        statistician.export_service_stats(f"cartography/intel/aws/recordedStats/{func_name}.json", func_name)
+
+
+
+
     # MAP IAM permissions
     if 'permission_relationships' in aws_requested_syncs:
+        begin = time.time()  # Added by Maaz
         RESOURCE_FUNCTIONS['permission_relationships'](**sync_args)
+        end = time.time()  # Added by Maaz
+        statistician.add_stat('permission_relationships', "status", "successful")
+        statistician.add_stat('permission_relationships', "Time Taken", f'{round(end - begin)} seconds')  # Added by Maaz
+        statistician.export_service_stats(f"cartography/intel/aws/recordedStats/{func_name}.json", func_name)
 
     # AWS Tags - Must always be last.
     if 'resourcegroupstaggingapi' in aws_requested_syncs:
+        begin = time.time()  # Added by Maaz
         RESOURCE_FUNCTIONS['resourcegroupstaggingapi'](**sync_args)
+        end = time.time()  # Added by Maaz
+        statistician.add_stat('resourcegroupstaggingapi', "status", "successful")
+        statistician.add_stat('resourcegroupstaggingapi', "Time Taken",
+                              f'{round(end - begin)} seconds')  # Added by Maaz
+        statistician.export_service_stats(f"cartography/intel/aws/recordedStats/{func_name}.json", func_name)
 
     run_analysis_job(
         'aws_ec2_iaminstanceprofile.json',

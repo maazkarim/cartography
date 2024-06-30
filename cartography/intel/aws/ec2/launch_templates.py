@@ -11,9 +11,10 @@ from cartography.models.aws.ec2.launch_template_versions import LaunchTemplateVe
 from cartography.models.aws.ec2.launch_templates import LaunchTemplateSchema
 from cartography.util import aws_handle_regions
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
-
+statistician = MyStats()
 
 @timeit
 @aws_handle_regions
@@ -134,14 +135,27 @@ def sync_ec2_launch_templates(
         update_tag: int,
         common_job_parameters: dict[str, Any],
 ) -> None:
+    
+    by_region = {}
+
     for region in regions:
+
+        by_region[region] = {}
+
         logger.info(f"Syncing launch templates for region '{region}' in account '{current_aws_account_id}'.")
         templates = get_launch_templates(boto3_session, region)
+
+        by_region[region]['templates'] = len(templates)
+
         templates = transform_launch_templates(templates)
         load_launch_templates(neo4j_session, templates, region, current_aws_account_id, update_tag)
 
         versions = get_launch_template_versions(boto3_session, templates, region)
+
+        by_region[region]['versions'] = len(templates)
+
         versions = transform_launch_template_versions(versions)
         load_launch_template_versions(neo4j_session, versions, region, current_aws_account_id, update_tag)
 
+    statistician.add_stat("ec2:launch_templates", "Resources Scanned By Region", by_region)
     cleanup(neo4j_session, common_job_parameters)

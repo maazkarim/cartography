@@ -10,8 +10,10 @@ from .util import get_botocore_config
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -21,6 +23,11 @@ def get_elastic_ip_addresses(boto3_session: boto3.session.Session, region: str) 
     try:
         addresses = client.describe_addresses()['Addresses']
     except ClientError as e:
+
+        statistician.add_stat('elastic_ip_addresses', 'skipped regions', region)
+        statistician.add_stat('elastic_ip_addresses', 'errors', e.response['Error']['Code'])
+        statistician.add_stat('elastic_ip_addresses', 'status', 'partial')
+
         logger.warning(f"Failed retrieve address for region - {region}. Error - {e}")
         raise
     return addresses
@@ -93,8 +100,17 @@ def sync_elastic_ip_addresses(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str],
     current_aws_account_id: str, update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
+    by_region = {}
+
     for region in regions:
         logger.info(f"Syncing Elastic IP Addresses for region {region} in account {current_aws_account_id}.")
         addresses = get_elastic_ip_addresses(boto3_session, region)
+
+        by_region[region] = len(addresses)
+
         load_elastic_ip_addresses(neo4j_session, addresses, region, current_aws_account_id, update_tag)
+
+    statistician.add_stat('elastic_ip_addresses', 'Addresses Scanned By Region', by_region)
+
     cleanup_elastic_ip_addresses(neo4j_session, common_job_parameters)

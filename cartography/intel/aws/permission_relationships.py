@@ -14,8 +14,10 @@ import yaml
 
 from cartography.graph.statement import GraphStatement
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 def evaluate_clause(clause: str, match: str) -> bool:
@@ -336,6 +338,10 @@ def parse_permission_relationships_file(file_path: str) -> List[Any]:
             relationship_mapping = yaml.load(f, Loader=yaml.FullLoader)
         return relationship_mapping
     except FileNotFoundError:
+        
+        statistician.add_stat('permission_relationships', 'status', 'failed')
+        statistician.add_stat('permission_relationships', 'errors', 'Permission relationships mapping file {file_path} not found')
+
         logger.warning(
             f"Permission relationships mapping file {file_path} not found, skipping sync stage {__name__}. "
             f"If you want to run this sync, please explicitly set a value for --permission-relationships-file in the "
@@ -360,8 +366,15 @@ def sync(
 ) -> None:
     logger.info("Syncing Permission Relationships for account '%s'.", current_aws_account_id)
     principals = get_principals_for_account(neo4j_session, current_aws_account_id)
+
+    statistician.add_stat('permission_relationships', 'Total Principals Scanned', len(principals))
+
     pr_file = common_job_parameters["permission_relationships_file"]
     if not pr_file:
+        statistician.add_stat('permission_relationships', 'errors',
+                              'Permission relationships file was not specified')
+        statistician.add_stat('permission_relationships', "status", "failed")
+
         logger.warning(
             "Permission relationships file was not specified, skipping. If this is not expected, please check your "
             "value of --permission-relationships-file",
@@ -370,6 +383,7 @@ def sync(
     relationship_mapping = parse_permission_relationships_file(pr_file)
     for rpr in relationship_mapping:
         if not is_valid_rpr(rpr):
+            statistician.add_stat('permission_relationships', 'errors', 'Resource permission relationship is missing fields')
             raise ValueError("""
         Resource permission relationship is missing fields.
         Required fields: permissions, relationship_name, target_label"

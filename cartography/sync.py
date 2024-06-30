@@ -34,6 +34,7 @@ from cartography.config import Config
 from cartography.stats import set_stats_client
 from cartography.util import STATUS_FAILURE
 from cartography.util import STATUS_SUCCESS
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +189,12 @@ def run_with_config(sync: Sync, config: Union[Config, argparse.Namespace]) -> in
     default_update_tag = int(time.time())
     if not config.update_tag:
         config.update_tag = default_update_tag
-    return sync.run(neo4j_driver, config)
+
+
+
+    temp = sync.run(neo4j_driver, config)
+    MyStats().export_stats("cartography/statistics_file.json")  # Exporting all stats
+    return temp
 
 
 def build_default_sync() -> Sync:

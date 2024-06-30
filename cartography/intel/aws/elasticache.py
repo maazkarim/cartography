@@ -11,9 +11,11 @@ from cartography.util import aws_handle_regions
 from cartography.util import merge_module_sync_metadata
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
 stat_handler = get_stats_client(__name__)
+statistician = MyStats()
 
 
 def _get_topic(cluster: Dict) -> Dict:
@@ -109,10 +111,19 @@ def sync(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
     update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
+    by_region = {}
+
     for region in regions:
         logger.info(f"Syncing ElastiCache clusters for region '{region}' in account {current_aws_account_id}")
         clusters = get_elasticache_clusters(boto3_session, region)
+
+        by_region[region] = len(clusters)
+
         load_elasticache_clusters(neo4j_session, clusters, region, current_aws_account_id, update_tag)
+
+    statistician.add_stat('elasticache', 'Clusters Scanned By Region', by_region)
+
     cleanup(neo4j_session, current_aws_account_id, update_tag)
     merge_module_sync_metadata(
         neo4j_session,

@@ -15,10 +15,11 @@ from cartography.stats import get_stats_client
 from cartography.util import aws_handle_regions
 from cartography.util import merge_module_sync_metadata
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
 stat_handler = get_stats_client(__name__)
-
+statistician = MyStats()
 
 @timeit
 @aws_handle_regions
@@ -105,6 +106,9 @@ def sync_dynamodb_tables(
     for region in regions:
         logger.info("Syncing DynamoDB for region in '%s' in account '%s'.", region, current_aws_account_id)
         dynamodb_tables = get_dynamodb_tables(boto3_session, region)
+
+        statistician.add_stat("dynamodb", 'Total Resources Scanned', len(dynamodb_tables))    # Added by Maaz
+
         ddb_table_data, ddb_gsi_data = transform_dynamodb_tables(dynamodb_tables, region)
         load_dynamodb_tables(neo4j_session, ddb_table_data, region, current_aws_account_id, aws_update_tag)
         load_dynamodb_gsi(neo4j_session, ddb_gsi_data, region, current_aws_account_id, aws_update_tag)

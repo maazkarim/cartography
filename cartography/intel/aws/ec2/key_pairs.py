@@ -10,8 +10,10 @@ from cartography.graph.job import GraphJob
 from cartography.models.aws.ec2.keypairs import EC2KeyPairSchema
 from cartography.util import aws_handle_regions
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -64,8 +66,11 @@ def sync_ec2_key_pairs(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
     update_tag: int, common_job_parameters: Dict,
 ) -> None:
+    count = 0
     for region in regions:
         logger.info("Syncing EC2 key pairs for region '%s' in account '%s'.", region, current_aws_account_id)
         data = get_ec2_key_pairs(boto3_session, region)
+        count += len(data)
         load_ec2_key_pairs(neo4j_session, data, region, current_aws_account_id, update_tag)
+    statistician.add_stat('ec2:keypair', 'Total Resources Scanned', count)
     cleanup_ec2_key_pairs(neo4j_session, common_job_parameters)

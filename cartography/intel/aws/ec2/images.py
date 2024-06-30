@@ -13,8 +13,10 @@ from cartography.intel.aws.ec2.util import get_botocore_config
 from cartography.models.aws.ec2.images import EC2ImageSchema
 from cartography.util import aws_handle_regions
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -48,10 +50,14 @@ def get_images(boto3_session: boto3.session.Session, region: str, image_ids: Lis
         self_images = client.describe_images(Owners=['self'])['Images']
         images.extend(self_images)
     except ClientError as e:
+
+        statistician.add_stat("ec2:images", "errors", e)
+        statistician.add_stat("ec2:images", "skipped regions", region)
+        statistician.add_stat("ec2:images", "status", "partial")
+
         logger.warning(f"Failed retrieve images for region - {region}. Error - {e}")
     try:
         if image_ids:
-            image_ids = [image_id for image_id in image_ids if image_id is not None]
             images_in_use = client.describe_images(ImageIds=image_ids)['Images']
             # Ensure we're not adding duplicates
             _ids = [image["ImageId"] for image in images]
@@ -59,6 +65,11 @@ def get_images(boto3_session: boto3.session.Session, region: str, image_ids: Lis
                 if image["ImageId"] not in _ids:
                     images.append(image)
     except ClientError as e:
+
+        statistician.add_stat("ec2:images", "errors", e)
+        statistician.add_stat("ec2:images", "skipped regions", region)
+        statistician.add_stat("ec2:images", "status", "partial")
+        
         logger.warning(f"Failed retrieve images for region - {region}. Error - {e}")
     return images
 
@@ -95,9 +106,12 @@ def sync_ec2_images(
         neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str],
         current_aws_account_id: str, update_tag: int, common_job_parameters: Dict,
 ) -> None:
+    img_count = 0
     for region in regions:
         logger.info("Syncing images for region '%s' in account '%s'.", region, current_aws_account_id)
         images_in_use = get_images_in_use(neo4j_session, region, current_aws_account_id)
         data = get_images(boto3_session, region, images_in_use)
+        img_count += len(data)
         load_images(neo4j_session, data, region, current_aws_account_id, update_tag)
+    statistician.add_stat('ec2:images', 'Total Images Scanned', img_count)
     cleanup_images(neo4j_session, common_job_parameters)

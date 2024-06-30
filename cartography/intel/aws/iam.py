@@ -15,7 +15,9 @@ from cartography.stats import get_stats_client
 from cartography.util import merge_module_sync_metadata
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
+statistician = MyStats()
 logger = logging.getLogger(__name__)
 stat_handler = get_stats_client(__name__)
 
@@ -227,7 +229,6 @@ def get_account_access_key_data(boto3_session: boto3.session.Session, username: 
         logger.warning(
             f"Could not get access key for user {username} due to NoSuchEntityException; skipping.",
         )
-        return access_keys
     for access_key in access_keys['AccessKeyMetadata']:
         access_key_id = access_key['AccessKeyId']
         last_used_info = client.get_access_key_last_used(
@@ -667,6 +668,9 @@ def sync_users(
 ) -> None:
     logger.info("Syncing IAM users for account '%s'.", current_aws_account_id)
     data = get_user_list_data(boto3_session)
+
+    statistician.add_stat('iam', 'Total Users Scanned', len(data['Users']))     # Added by Maaz
+
     load_users(neo4j_session, data['Users'], current_aws_account_id, aws_update_tag)
 
     sync_user_inline_policies(boto3_session, data, neo4j_session, aws_update_tag)
@@ -705,6 +709,8 @@ def sync_groups(
     data = get_group_list_data(boto3_session)
     load_groups(neo4j_session, data['Groups'], current_aws_account_id, aws_update_tag)
 
+    statistician.add_stat('iam', 'Total Groups Scanned', len(data['Groups']))      # Added by Maaz
+
     sync_groups_inline_policies(boto3_session, data, neo4j_session, aws_update_tag)
 
     sync_group_managed_policies(boto3_session, data, neo4j_session, aws_update_tag)
@@ -738,6 +744,8 @@ def sync_roles(
     logger.info("Syncing IAM roles for account '%s'.", current_aws_account_id)
     data = get_role_list_data(boto3_session)
     load_roles(neo4j_session, data['Roles'], current_aws_account_id, aws_update_tag)
+
+    statistician.add_stat('iam', 'Total Roles Scanned', len(data['Roles']))
 
     sync_role_inline_policies(current_aws_account_id, boto3_session, data, neo4j_session, aws_update_tag)
 

@@ -12,8 +12,10 @@ from botocore.exceptions import ClientError
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -32,6 +34,7 @@ def get_sqs_queue_list(boto3_session: boto3.session.Session, region: str) -> Lis
 def get_sqs_queue_attributes(
         boto3_session: boto3.session.Session,
         queue_urls: List[str],
+        region: str
 ) -> List[Tuple[str, Any]]:
     """
     Iterates over all SQS queues. Returns a dict with url as key, and attributes as value.
@@ -43,6 +46,11 @@ def get_sqs_queue_attributes(
         try:
             response = client.get_queue_attributes(QueueUrl=queue_url, AttributeNames=['All'])
         except ClientError as e:
+
+            statistician.add_stat('sqs', 'errors', e.response['Error']['Code'])
+            statistician.add_stat('sqs', 'skipped regions', region)
+            statistician.add_stat('sqs', 'status', 'partial')
+
             if e.response['Error']['Code'] == 'AWS.SimpleQueueService.NonExistentQueue':
                 logger.warning(f"Failed to retrieve SQS queue {queue_url} - Queue does not exist error")
                 continue
@@ -150,11 +158,25 @@ def sync(
     neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str], current_aws_account_id: str,
     update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
+    by_region = {}
     for region in regions:
+
+        by_region[region] = {}
+
         logger.info("Syncing SQS for region '%s' in account '%s'.", region, current_aws_account_id)
         queue_urls = get_sqs_queue_list(boto3_session, region)
+
+        by_region[region]['Queue URLs Scanned'] = len(queue_urls)
+
         if len(queue_urls) == 0:
             continue
-        queue_attributes = get_sqs_queue_attributes(boto3_session, queue_urls)
+        queue_attributes = get_sqs_queue_attributes(boto3_session, queue_urls, region)
+
+        by_region[region]['Queue Attributes Scanned'] = len(queue_attributes)
+
         load_sqs_queues(neo4j_session, queue_attributes, region, current_aws_account_id, update_tag)
+
+    statistician.add_stat('sqs', 'Resources Scanned by Region', by_region)
+
     cleanup_sqs_queues(neo4j_session, common_job_parameters)

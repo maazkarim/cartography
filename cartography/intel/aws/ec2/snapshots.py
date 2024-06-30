@@ -9,8 +9,10 @@ from botocore.exceptions import ClientError
 from cartography.util import aws_handle_regions
 from cartography.util import run_cleanup_job
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -41,6 +43,11 @@ def get_snapshots(boto3_session: boto3.session.Session, region: str, in_use_snap
             for page in paginator.paginate(SnapshotIds=list(other_snapshot_ids)):
                 snapshots.extend(page['Snapshots'])
         except ClientError as e:
+
+            statistician.add_stat('ec2:snapshots', 'skipped regions', region)
+            statistician.add_stat('ec2:snapshots', 'errors', e.response['Error']['Code'])
+            statistician.add_stat('ec2:snapshots', 'status', 'partial')
+
             if e.response['Error']['Code'] == 'InvalidSnapshot.NotFound':
                 logger.warning(
                     f"Failed to retrieve page of in-use, \
@@ -137,11 +144,26 @@ def sync_ebs_snapshots(
         neo4j_session: neo4j.Session, boto3_session: boto3.session.Session, regions: List[str],
         current_aws_account_id: str, update_tag: int, common_job_parameters: Dict,
 ) -> None:
+
+    total = 0
+    in_use = 0
+    vol = 0
+
     for region in regions:
         logger.debug("Syncing snapshots for region '%s' in account '%s'.", region, current_aws_account_id)
         snapshots_in_use = get_snapshots_in_use(neo4j_session, region, current_aws_account_id)
         data = get_snapshots(boto3_session, region, snapshots_in_use)
         load_snapshots(neo4j_session, data, region, current_aws_account_id, update_tag)
         snapshot_volumes = get_snapshot_volumes(data)
+
+        total += len(data)
+        in_use += len(snapshots_in_use)
+        vol += len(snapshot_volumes)
+
         load_snapshot_volume_relations(neo4j_session, snapshot_volumes, current_aws_account_id, update_tag)
+
+    statistician.add_stat('ec2:snapshots', 'Total Snapshots Scanned', total)
+    statistician.add_stat('ec2:snapshots', 'Total Snapshots in use', total)
+    statistician.add_stat('ec2:snapshots', 'Total Snapshot Volumes', total)
+
     cleanup_snapshots(neo4j_session, common_job_parameters)

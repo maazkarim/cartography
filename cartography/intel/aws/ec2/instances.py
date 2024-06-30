@@ -20,8 +20,10 @@ from cartography.models.aws.ec2.subnet_instance import EC2SubnetInstanceSchema
 from cartography.models.aws.ec2.volumes import EBSVolumeInstanceSchema
 from cartography.util import aws_handle_regions
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 Ec2Data = namedtuple(
     'Ec2Data', [
@@ -319,10 +321,27 @@ def sync_ec2_instances(
         update_tag: int,
         common_job_parameters: Dict[str, Any],
 ) -> None:
+    res_count = 0
+    inst_count = 0
+    subnet_count = 0
+    sg_count = 0
+    keypair_count = 0
+    network_interface_count = 0
+    instance_ebs_vol_count = 0
+
     for region in regions:
         logger.info("Syncing EC2 instances for region '%s' in account '%s'.", region, current_aws_account_id)
         reservations = get_ec2_instances(boto3_session, region)
         ec2_data = transform_ec2_instances(reservations, region, current_aws_account_id)
+
+        res_count += len(ec2_data.reservation_list)
+        inst_count += len(ec2_data.instance_list)
+        subnet_count += len(ec2_data.subnet_list)
+        sg_count += len(ec2_data.sg_list)
+        keypair_count += len(ec2_data.keypair_list)
+        network_interface_count += len(ec2_data.network_interface_list)
+        instance_ebs_vol_count += len(ec2_data.instance_ebs_volumes_list)
+
         load_ec2_instance_data(
             neo4j_session,
             region,
@@ -336,4 +355,12 @@ def sync_ec2_instances(
             ec2_data.network_interface_list,
             ec2_data.instance_ebs_volumes_list,
         )
+    statistician.add_stat('ec2:instance','Total Reservations Scanned',res_count)
+    statistician.add_stat('ec2:instance','Total Instances Scanned',inst_count)
+    statistician.add_stat('ec2:instance','Total Subnets Scanned',subnet_count)
+    statistician.add_stat('ec2:instance','Total SG Scanned',sg_count)
+    statistician.add_stat('ec2:instance','Total Key-Pairs Scanned',keypair_count)
+    statistician.add_stat('ec2:instance','Total Network Interfaces Scanned',network_interface_count)
+    statistician.add_stat('ec2:instance','Total Instance Ebs Vols Scanned',instance_ebs_vol_count)
+
     cleanup(neo4j_session, common_job_parameters)

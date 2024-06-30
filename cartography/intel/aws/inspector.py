@@ -14,9 +14,10 @@ from cartography.models.aws.inspector.packages import AWSInspectorPackageSchema
 from cartography.util import aws_handle_regions
 from cartography.util import aws_paginate
 from cartography.util import timeit
-
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -206,12 +207,25 @@ def sync(
     update_tag: int,
     common_job_parameters: Dict[str, Any],
 ) -> None:
+
+    by_region = {}
+
     for region in regions:
+        by_region[region] = {}
+
         logger.info(f"Syncing AWS Inspector findings for account {current_aws_account_id} and region {region}")
         findings = get_inspector_findings(boto3_session, region, current_aws_account_id)
         finding_data, package_data = transform_inspector_findings(findings)
         logger.info(f"Loading {len(finding_data)} findings")
+
+        by_region[region]['Findings Scanned'] = len(finding_data)
+
         load_inspector_findings(neo4j_session, finding_data, region, update_tag, current_aws_account_id)
         logger.info(f"Loading {len(package_data)} packages")
+
+        by_region[region]['Packages Scanned'] = len(package_data)
+
         load_inspector_packages(neo4j_session, package_data, region, update_tag, current_aws_account_id)
         cleanup(neo4j_session, common_job_parameters)
+
+    statistician.add_stat('inspector', 'Resources Scanned by Region', by_region)

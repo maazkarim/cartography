@@ -13,8 +13,10 @@ from cartography.models.aws.ssm.instance_patch import SSMInstancePatchSchema
 from cartography.util import aws_handle_regions
 from cartography.util import dict_date_to_epoch
 from cartography.util import timeit
+from cartography.my_stats import MyStats
 
 logger = logging.getLogger(__name__)
+statistician = MyStats()
 
 
 @timeit
@@ -143,14 +145,28 @@ def sync(
         update_tag: int,
         common_job_parameters: Dict[str, Any],
 ) -> None:
+
+    by_region = {}
+
     for region in regions:
+        by_region[region] = {}
+
         logger.info("Syncing SSM for region '%s' in account '%s'.", region, current_aws_account_id)
         instance_ids = get_instance_ids(neo4j_session, region, current_aws_account_id)
+
+        by_region[region]['Instances Scanned'] = len(instance_ids)
+
         data = get_instance_information(boto3_session, region, instance_ids)
         data = transform_instance_information(data)
         load_instance_information(neo4j_session, data, region, current_aws_account_id, update_tag)
 
         data = get_instance_patches(boto3_session, region, instance_ids)
+
+        by_region[region]['Patches Scanned'] = len(data)
+
         data = transform_instance_patches(data)
         load_instance_patches(neo4j_session, data, region, current_aws_account_id, update_tag)
+
+    statistician.add_stat('ssm', 'Resources Scanned by Region', by_region)
+
     cleanup_ssm(neo4j_session, common_job_parameters)
