@@ -59,9 +59,9 @@ def get_kms_key_details(
     """
     client = boto3_session.client('kms', region_name=region)
     for key in kms_key_data:
-        policy = get_policy(key, client)
-        aliases = get_aliases(key, client, region)
-        grants = get_grants(key, client)
+        policy = get_policy(key, client, region)
+        aliases = get_aliases(key, client)
+        grants = get_grants(key, client, region)
         yield key['KeyId'], policy, aliases, grants
 
 

@@ -18,3 +18,4 @@ generated
 dist/
 cartography/intel/aws/recordedStats/*
 cartography/statistics_file.json
+!cartography/intel/aws/recordedStats/.keep
